@@ -5,6 +5,7 @@
 install:
 	@echo "Installing dependencies..."
 	uv pip install -e .[dev]
+	uv run pre-commit install
 
 format:
 	@echo "Formatting code with Ruff..."
@@ -14,6 +15,14 @@ format:
 lint:
 	@echo "Linting code with Ruff..."
 	uv run ruff check .
+
+install-hooks:
+	@echo "Installing pre-commit hooks..."
+	uv run pre-commit install
+
+pre-commit:
+	@echo "Running pre-commit hooks..."
+	uv run pre-commit run --all-files
 
 test:
 	@echo "Running tests..."
@@ -62,6 +71,8 @@ help:
 	@echo "  install      - Instala las dependencias de producción y desarrollo."
 	@echo "  format       - Formatea el código y arregla errores de linting automáticamente."
 	@echo "  lint         - Revisa el código en busca de errores de estilo y programación."
+	@echo "  install-hooks - Instala los hooks de pre-commit."
+	@echo "  pre-commit   - Ejecuta los hooks de pre-commit en todos los archivos."
 	@echo "  test         - Ejecuta la suite de pruebas."
 	@echo "  clean        - Elimina archivos temporales y compilados."
 	@echo "  clean-debug  - Elimina archivos de debug antiguos, mantiene solo la última sesión."

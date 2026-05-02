@@ -405,12 +405,12 @@ class BancoChileScraper(BaseScraper):
                             # Click the overlay to dismiss it
                             overlays.first.click(timeout=1000)
                             page.wait_for_timeout(500)
-                        except:
+                        except Exception:
                             # Try pressing Escape
                             try:
                                 page.keyboard.press("Escape")
                                 page.wait_for_timeout(500)
-                            except:
+                            except Exception:
                                 pass
                 except Exception:
                     continue
@@ -1354,8 +1354,28 @@ class BancoChileScraper(BaseScraper):
             ]
 
             section_clicked = self._click_with_fallbacks(
-                section_selectors, timeout=10000
+                section_selectors, timeout=5000
             )
+
+            # The side menu collapses after entering a credit-card sub-page, so
+            # the link may no longer be in the DOM. Fall back to hash navigation
+            # (and re-open the credit-card menu if that also fails).
+            if not section_clicked:
+                logger.info(
+                    f"Side-menu link for {section_type} not found, trying hash navigation"
+                )
+                hash_target = (
+                    link_selector.split('"')[1] if '"' in link_selector else ""
+                )
+                if hash_target:
+                    try:
+                        page.evaluate(f"window.location.hash = '{hash_target}'")
+                        page.wait_for_timeout(3000)
+                        section_clicked = True
+                        logger.info(f"Navigated to {section_type} section via hash URL")
+                    except Exception as e:
+                        logger.warning(f"Hash navigation failed: {e}")
+
             if not section_clicked:
                 logger.warning(f"Could not navigate to {section_type} section")
                 return []

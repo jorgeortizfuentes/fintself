@@ -4,9 +4,6 @@ from typing import Optional
 
 import typer
 from dotenv import load_dotenv
-
-load_dotenv()
-
 from fintself.core.exceptions import FintselfException
 from fintself.scrapers import get_scraper, list_available_scrapers
 from fintself.utils.logging import logger
@@ -16,6 +13,8 @@ from fintself.utils.output import (
     save_to_json,
     save_to_xlsx,
 )
+
+load_dotenv()
 
 app = typer.Typer(
     name="fintself",
@@ -147,6 +146,8 @@ def scrape_bank_command(
             )
             raise typer.Exit(code=1)
 
+    except typer.Exit:
+        raise
     except FintselfException as e:
         logger.error(f"Error en el scraping: {str(e)}")
         raise typer.Exit(code=1)
