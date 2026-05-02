@@ -112,7 +112,11 @@ class SantanderScraper(BaseScraper):
             return []
 
     def _navigate_to_card_in_carousel(self, target_card_index: int) -> bool:
-        """Navigates to a specific card in the carousel by clicking the next button.
+        """Navigates to a specific card in the carousel using pagination bullets.
+
+        Pagination bullets (aria-label="Go to slide N") are more reliable than
+        the next button, which can briefly report disabled while the swiper is
+        still initialising after a fresh navigation.
 
         Args:
             target_card_index: Zero-based index of the card to navigate to
@@ -124,27 +128,30 @@ class SantanderScraper(BaseScraper):
         logger.info(f"Navigating to card at index {target_card_index} in carousel...")
 
         try:
-            # Wait for carousel to be fully loaded and initialized
             page.wait_for_selector("lib-carousel", timeout=10000)
-            page.wait_for_timeout(3000)  # Wait for carousel initialization
+            # Wait until the pagination bullets are rendered — that's the signal
+            # that swiper has fully initialised.
+            page.wait_for_selector(
+                "lib-carousel .swiper-pagination-bullet",
+                timeout=10000,
+            )
 
-            # Click next button repeatedly to reach target card
-            for i in range(target_card_index):
-                next_button = page.locator("lib-carousel .swiper-button-next")
+            slide_label = f"Go to slide {target_card_index + 1}"
+            bullet = page.locator(
+                f'lib-carousel span.swiper-pagination-bullet[aria-label="{slide_label}"]'
+            ).first
 
-                # Wait for button to be visible
-                next_button.wait_for(state="visible", timeout=5000)
+            try:
+                bullet.wait_for(state="visible", timeout=5000)
+            except PlaywrightTimeoutError:
+                logger.warning(
+                    f"Pagination bullet for slide {target_card_index + 1} not found. "
+                    f"Carousel likely has fewer cards on this view."
+                )
+                return False
 
-                # Check if button is disabled
-                class_attr = next_button.get_attribute("class")
-                if class_attr and "swiper-button-disabled" in class_attr:
-                    logger.warning(
-                        f"Next button is disabled at index {i}. This might mean there's only one card in this view."
-                    )
-                    return False
-
-                self._click(next_button)
-                page.wait_for_timeout(1500)  # Wait for animation to complete
+            self._click(bullet, force=True, skip_hover=True)
+            page.wait_for_timeout(1500)  # Wait for slide transition
 
             logger.info(f"Successfully navigated to card at index {target_card_index}")
             return True
@@ -527,8 +534,46 @@ class SantanderScraper(BaseScraper):
             else "div.container-tabla"
         )
 
+        # Wait for either the movements container or the explicit empty-state message.
+        # Using get_by_text avoids the :has-text ancestor-match pitfall.
+        empty_state = page.get_by_text("no tienes movimientos", exact=False).first
         try:
-            self._wait_for_selector(container_selector, timeout_override=30000)
+            page.wait_for_function(
+                """(sel) => {
+                    const container = document.querySelector(sel);
+                    if (container) return true;
+                    const paragraphs = document.querySelectorAll('p, span');
+                    for (const el of paragraphs) {
+                        if (el.offsetParent !== null &&
+                            el.textContent &&
+                            el.textContent.toLowerCase().includes('no tienes movimientos')) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }""",
+                arg=container_selector,
+                timeout=30000,
+            )
+        except PlaywrightTimeoutError:
+            logger.warning(
+                f"Neither table container nor empty-state appeared for {status} movements in {currency}."
+            )
+            self._save_debug_info(f"no_container_{status}_{currency}")
+            return []
+
+        # If the bank explicitly says there are no movements, exit quietly.
+        try:
+            if empty_state.is_visible(timeout=1000):
+                logger.info(
+                    f"Santander reports no {status} movements in {currency} for this card."
+                )
+                return []
+        except Exception:
+            pass
+
+        try:
+            self._wait_for_selector(container_selector, timeout_override=5000)
         except DataExtractionError:
             logger.warning(
                 f"No table container found for {status} movements in {currency}."
