@@ -34,14 +34,22 @@ class CencosudScraper(BaseScraper):
         logger.info("Submitting login form.")
         self._click("#webt-login-prelogin-button-continue")
 
+        # Cencosud frequently triggers an image captcha after the login click.
+        # In visible mode the user has to solve it by hand, so we wait for the
+        # dashboard to load with a generous timeout (3 min) and key off the
+        # same selector the rest of the scraper relies on.
+        logger.info(
+            "Waiting for dashboard to load (solve any captcha manually if it appears)."
+        )
         try:
-            self._wait_for_selector("text=Movimientos", timeout_override=20000)
+            self._wait_for_selector('div[code="MOVIMIENTOS"]', timeout_override=180000)
             self._save_debug_info("03_login_success")
             logger.info("Login to Cencosud successful.")
         except DataExtractionError:
             self._save_debug_info("login_failed")
             raise LoginError(
-                "Timeout or error after login to Cencosud. Check credentials."
+                "Timeout after login to Cencosud. Check credentials or solve "
+                "the captcha within 3 minutes when running in visible mode."
             )
 
     def _scrape_movements(self) -> List[MovementModel]:
