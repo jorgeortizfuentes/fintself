@@ -11,7 +11,7 @@ from fintself.utils.output import save_to_xlsx
 load_dotenv()
 
 # List of all banks you want to process
-BANKS_TO_SCRAPE = ["cl_santander", "cl_banco_chile", "cl_cencosud"]
+BANKS_TO_SCRAPE = ["cl_estado", "cl_santander", "cl_banco_chile", "cl_cencosud", "cl_bice"]
 
 
 def main():
