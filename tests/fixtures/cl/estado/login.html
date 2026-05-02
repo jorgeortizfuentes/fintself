@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Banco Estado - Login</title>
+</head>
+<body>
+    <msd-card-default class="msd_card_default login_card">
+        <div card-default-container="" class="msd_card_default__content">
+            <app-loginform class="no-dark-bcknd">
+                <form novalidate="" autocomplete="off" class="no-dark-bcknd ng-pristine ng-invalid ng-touched">
+                    <h2 aria-hidden="true">Ingresa a tu Banca en Línea</h2>
+                    <div class="msd-input">
+                        <label for="rut">RUT</label>
+                        <div class="input-container">
+                            <input type="text" id="rut" onpaste="return false;" ondrop="return false;"
+                                   aria-label="Ingresa RUT sin puntos ni guión" autocomplete="off"
+                                   formatrut="" formatrut2="" required="" name="rut" placeholder="Ej: 12345678k"
+                                   class="ng-pristine ng-invalid ng-touched" maxlength="12">
+                            <div aria-live="assertive" class="input-messages"></div>
+                        </div>
+                    </div>
+                    <div class="msd-input">
+                        <label for="pass">Clave</label>
+                        <div class="input-container">
+                            <input id="pass" onpaste="return false;" ondrop="return false;"
+                                   autocomplete="new-password" minlength="4" required="" type="password"
+                                   name="password" placeholder="********" class="ng-untouched ng-pristine ng-invalid"
+                                   maxlength="8" pattern="[a-zA-Z0-9._*-]*">
+                            <div aria-live="assertive" class="input-messages"></div>
+                        </div>
+                    </div>
+                    <button msdprimary="" type="submit" id="btnLogin" class="msd-button msd-button--primary">
+                        Ingresar
+                    </button>
+                    <button type="button" msdlink="" id="passwordHelp" class="msd-button msd-button--link">
+                        ¿Problemas con tu Clave?
+                    </button>
+                    <hr aria-hidden="true" class="dotted_line">
+                    <button msdaccent="" type="button" id="btnLoginEmpresa" aria-label="Ir a BancoEstado Empresas"
+                            class="msd-button msd-button--accent msd-button--black">
+                        Acceso Empresas
+                    </button>
+                </form>
+            </app-loginform>
+            <h3>¿Necesitas ayuda?</h3>
+            <p class="small">
+                Para aclarar dudas revisa nuestro
+                <button msdlink="" id="HelpLink" class="msd-button msd-button--link">
+                    Centro de ayuda
+                </button>
+            </p>
+        </div>
+    </msd-card-default>
+</body>
+</html>

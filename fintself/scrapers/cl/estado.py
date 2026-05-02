@@ -58,25 +58,23 @@ class BancoEstadoScraper(BaseScraper):
         page.wait_for_timeout(2000)
 
         # Close any modal that might be blocking the login button
-        try:
-            modal_close_selectors = [
-                ".msd-modalhome--container-content-close",
-                ".msd-modalhome--container .close",
-                'span:has-text("X")',
-            ]
+        modal_close_selectors = [
+            ".msd-modalhome--container-content-close",
+            ".msd-modalhome--container .close",
+            'button[aria-label="Cerrar"]',
+            'button[aria-label="Cerrar modal"]',
+        ]
 
-            for selector in modal_close_selectors:
-                try:
-                    close_btn = page.locator(selector).first
-                    if close_btn.is_visible(timeout=2000):
-                        logger.info(f"Closing modal with selector: {selector}")
-                        self._click(close_btn)
-                        page.wait_for_timeout(1000)
-                        break
-                except Exception:
-                    continue
-        except Exception as e:
-            logger.debug(f"No modal to close before login: {e}")
+        for selector in modal_close_selectors:
+            try:
+                close_btn = page.locator(selector).first
+                if close_btn.is_visible(timeout=2000):
+                    logger.info(f"Closing modal with selector: {selector}")
+                    self._click(close_btn, force=True, skip_hover=True)
+                    page.wait_for_timeout(1000)
+                    break
+            except Exception:
+                continue
 
         self._save_debug_info("03a_before_login_click")
 
@@ -108,28 +106,23 @@ class BancoEstadoScraper(BaseScraper):
         page.wait_for_timeout(3000)
 
         # Close any post-login announcement modal
-        try:
-            close_btn_selectors = [
-                ".msd-modalhome--container-content-close",
-                'span:has-text("X")',
-                ".msd-sideBar__container button.close",
-                'button[aria-label="Cerrar"]',
-            ]
+        close_btn_selectors = [
+            ".msd-modalhome--container-content-close",
+            ".msd-sideBar__container button.close",
+            'button[aria-label="Cerrar"]',
+            'button[aria-label="Cerrar modal"]',
+        ]
 
-            for selector in close_btn_selectors:
-                try:
-                    close_btn = page.locator(selector).first
-                    if close_btn.is_visible(timeout=2000):
-                        logger.info(
-                            f"Closing post-login modal with selector: {selector}"
-                        )
-                        self._click(close_btn)
-                        page.wait_for_timeout(2000)
-                        break
-                except Exception:
-                    continue
-        except Exception as e:
-            logger.debug(f"No post-login modal to close: {e}")
+        for selector in close_btn_selectors:
+            try:
+                close_btn = page.locator(selector).first
+                if close_btn.is_visible(timeout=2000):
+                    logger.info(f"Closing post-login modal with selector: {selector}")
+                    self._click(close_btn, force=True, skip_hover=True)
+                    page.wait_for_timeout(2000)
+                    break
+            except Exception:
+                continue
 
         self._save_debug_info("04_login_success")
         logger.info("Login to Banco Estado successful.")
@@ -220,12 +213,10 @@ class BancoEstadoScraper(BaseScraper):
         selectors_to_try = [
             ".msd-modalhome--container-content-close",
             ".msd-modalhome--container .close",
-            'span:has-text("X")',
             'button[aria-label="Cerrar"]',
             'button[aria-label="Cerrar modal"]',
             'button[aria-label="Close"]',
             'button[aria-label="Close Infobar"]',
-            "button.evg-btn-dismissal",
             'button:has-text("No por ahora")',
             ".msd-sideBar__container__header span.close",
             ".msd-sideBar__container button.close",
@@ -259,6 +250,7 @@ class BancoEstadoScraper(BaseScraper):
                     '#remove-modal',
                     '#evg-infobar-with-user-attr',
                     '.evg-infobar-middle',
+                    '.evg-btn-dismissal',
                     'msd-side-nav.msd-holidays-type-2',
                 ];
                 selectors.forEach((selector) => {
@@ -278,42 +270,37 @@ class BancoEstadoScraper(BaseScraper):
 
         logger.info("Extracting movements from page")
 
-        # Wait for table or no-data message
+        # Wait for either the movements table or the empty-state container.
         try:
-            # Look for either a table or a no-data message
             page.wait_for_selector(
-                'table, .no-data, :has-text("No hay movimientos"), :has-text("Sin movimientos")',
+                "table tbody tr, .info_no_movements",
                 timeout=15000,
             )
         except PlaywrightTimeoutError:
-            logger.warning("No table or no-data message found")
+            logger.warning(
+                "Neither a movements table nor an empty-state message appeared in time"
+            )
             self._save_debug_info("no_table_found")
             return []
 
-        # Check for no-data message
+        # Confirmed empty state: bank explicitly tells us there are no movements
+        # in the current period (anchored to a specific container, not body).
         try:
-            no_data_selectors = [
-                ':has-text("No hay movimientos")',
-                ':has-text("Sin movimientos")',
-                ".no-data",
-            ]
-
-            for selector in no_data_selectors:
-                try:
-                    no_data = page.locator(selector).first
-                    if no_data.is_visible(timeout=2000):
-                        logger.info("No movements found on this account")
-                        return []
-                except Exception:
-                    continue
+            empty_state = page.locator(".info_no_movements").first
+            if empty_state.is_visible(timeout=1000):
+                logger.info(
+                    "Banco Estado reports no movements for the current period "
+                    "on this CuentaRUT (historical movements may live in Cartolas/PDFs)."
+                )
+                return []
         except Exception:
-            pass  # Table might exist
+            pass
 
-        # Try to find the table
+        # Otherwise we expect a real table with rows
         try:
             table = page.locator("table").first
             if not table.is_visible(timeout=5000):
-                logger.warning("Table not visible")
+                logger.warning("Movements table not visible")
                 return []
         except Exception:
             logger.warning("Could not find movements table")
