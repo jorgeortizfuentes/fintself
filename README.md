@@ -31,14 +31,15 @@
 
 ## Bancos soportados
 
-Actualmente, Fintself soporta los siguientes bancos:
+Actualmente, Fintself soporta los siguientes scrapers para Chile:
 
-- 🇨🇱 **Chile**:
-  - Banco Santander (`cl_santander`)
-  - Banco de Chile (`cl_banco_chile`)
-  - Banco Estado (CuentaRUT) (`cl_estado`)
-  - Banco Bice (`cl_bice`) - Contribución de [@albertocintolesi](https://github.com/albertocintolesi)
-  - Tarjeta Cencosud Scotiabank (`cl_cencosud`)
+| Banco / scraper | ID | Débito | Crédito | Notas |
+| --- | --- | --- | --- | --- |
+| Banco Santander | `cl_santander` | Sí | Sí | Cuentas y tarjetas en CLP/USD. |
+| Banco de Chile | `cl_banco_chile` | Sí | Sí | Cuentas y tarjetas nacionales/internacionales. |
+| Banco Estado (CuentaRUT) | `cl_estado` | Sí | No | Solo movimientos de CuentaRUT. |
+| Banco Bice | `cl_bice` | Sí | Sí | Contribución de [@albertocintolesi](https://github.com/albertocintolesi). |
+| Tarjeta Cencosud Scotiabank | `cl_cencosud` | No aplica | Sí | |
 
 Para ver la lista actualizada directamente desde la herramienta, ejecuta `fintself list`.
 

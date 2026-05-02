@@ -22,10 +22,16 @@ Para empezar a contribuir, sigue estos pasos:
 
 2.  **Asegura los prerrequisitos**: Necesitas tener `Python >= 3.9` y `uv` instalados.
 
-3.  **Instala las dependencias**: El `Makefile` se encarga de todo. Este comando creará un entorno virtual e instalará las dependencias de producción y desarrollo.
+3.  **Instala las dependencias**: El `Makefile` se encarga de todo. Este comando creará un entorno virtual, instalará las dependencias de producción y desarrollo, y activará el hook de pre-commit.
 
     ```bash
     make install
+    ```
+
+    Si ya tenías el entorno creado, puedes instalar solo el hook con:
+
+    ```bash
+    make install-hooks
     ```
 
 4.  **Configura tus credenciales (Opcional)**: Para ejecutar scrapers localmente, crea un archivo `.env` en la raíz del proyecto. **Este archivo está ignorado por Git y nunca debe ser subido**.
@@ -148,6 +154,7 @@ Este es el flujo de trabajo para agregar soporte para un nuevo banco:
 7.  **Verificar el Código**:
 
     - Formatea tu código: `make format`.
+    - Ejecuta el lint que corre antes de cada commit: `make pre-commit`.
     - Ejecuta las pruebas: `make test`.
 
 8.  **Crear un Pull Request**: Envía un PR de tu rama `feature/...` a `develop`.
@@ -244,4 +251,3 @@ Cuando se fusiona un Pull Request a la rama `main`, el workflow de `Release` se 
 Gracias a esta automatización, los mantenedores no necesitan realizar ningún paso manual para lanzar una nueva versión. Solo es necesario asegurarse de que los Pull Requests se fusionen con mensajes de commit que sigan el estándar de Commits Convencionales.
 
 **Nota para mantenedores**: Para que la publicación en PyPI funcione, es necesario configurar un secreto en el repositorio de GitHub llamado `PYPI_API_TOKEN` con un token de API válido de PyPI.
-
