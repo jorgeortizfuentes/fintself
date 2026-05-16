@@ -138,7 +138,15 @@ Este es el flujo de trabajo para agregar soporte para un nuevo banco:
     - Mientras desarrollas, guarda el contenido HTML de las páginas clave (login, movimientos, etc.).
     - Crea una carpeta en `tests/fixtures/codigo_iso_pais/nombre_banco/`.
     - Guarda los archivos HTML ahí. _Ejemplo_: `login.html`, `movements_page_1.html`.
-    - **Importante**: Edita los archivos HTML para eliminar cualquier información personal o sensible.
+    - **Importante**: Edita los archivos HTML para eliminar cualquier información personal o sensible. Checklist mínima de sanitización (revisa cada uno antes de hacer commit):
+        - [ ] **RUTs**: reemplaza con `XX.XXX.XXX-X` cualquier patrón `\d{1,2}\.\d{3}\.\d{3}-[\dkK]` y `XXXXXXX-X` para `\d{7,8}-[\dkK]` (RUT sin puntos).
+        - [ ] **Tarjetas**: reemplaza últimos 4 dígitos `****\d{4}` por `****XXXX`.
+        - [ ] **Números de cuenta**: reemplaza secuencias de 9+ dígitos dentro de celdas con `XXXXXXXXX`.
+        - [ ] **Nombres**: en descripciones de transferencias (`TEF`, `TRANSF`, `ABONO`, `SBP`, `PAGO TARJETA`), reemplaza nombres propios por `NOMBRE APELLIDO`.
+        - [ ] **Saludos personalizados**: reemplaza `Hola, <Nombre>` por `Hola, USUARIO`.
+        - [ ] **IDs de pago/tax**: reemplaza patrones tipo `SII <8+ dígitos>` por `SII XXXXXXXX`.
+        - [ ] **Verificación final**: `grep -E '\b\d{1,2}\.\d{3}\.\d{3}-[\dkK]\b|\b\d{7,8}-[\dkK]\b|\*{2,}\d{4}\b' tests/fixtures/<pais>/<banco>/*.html` debe devolver cero resultados.
+    - Considera añadir un `README.md` en la carpeta de fixtures describiendo qué representa cada archivo, la fecha de captura y la URL de origen.
 
 5.  **Escribir las Pruebas**:
 
