@@ -200,11 +200,159 @@ class TestLoginPageFixture:
         assert "Ingresar" in html
 
 
-class TestScrapeMovementsStubs:
-    """Movement scrapers are stubs until recon is complete."""
+class TestCleanText:
+    def test_collapses_whitespace_and_trims(self, scraper):
+        assert scraper._clean_text("  hola\n\t mundo  ") == "hola mundo"
 
-    def test_scrape_movements_returns_empty_list(self, scraper):
-        assert scraper._scrape_movements() == []
+    def test_empty_input_returns_empty(self, scraper):
+        assert scraper._clean_text("") == ""
+        assert scraper._clean_text(None) == ""
+
+
+class TestExtractCheckingMovementsFixture:
+    """Golden-file test: parse the captured checking iframe DOM."""
+
+    def test_parses_all_movement_rows(self, scraper, fixture_page):
+        from pathlib import Path
+
+        html = (
+            Path(__file__).parent.parent.parent
+            / "fixtures"
+            / "cl"
+            / "scotiabank"
+            / "checking_movements.html"
+        ).read_text(encoding="utf-8")
+        fixture_page.set_content(html)
+
+        movements = scraper._extract_checking_movements(fixture_page, account_id="1234")
+
+        assert len(movements) > 0
+        first = movements[0]
+        assert first.currency == "CLP"
+        assert first.account_type == "corriente"
+        assert first.account_id == "1234"
+        assert first.date is not None
+        assert first.description != ""
+        # Sign convention sanity: at least one cargo (<0) AND one abono (>0)
+        # exist in the sanitized fixture.
+        assert any(m.amount < 0 for m in movements)
+        assert any(m.amount > 0 for m in movements)
+        for m in movements:
+            assert m.transaction_type in {"Abono", "Cargo"}
+            if m.amount < 0:
+                assert m.transaction_type == "Cargo"
+            if m.amount > 0:
+                assert m.transaction_type == "Abono"
+
+
+class TestExtractCCNacionalFixture:
+    def test_billed_nacional_parses_with_inverted_sign(self, scraper, fixture_page):
+        from pathlib import Path
+
+        html = (
+            Path(__file__).parent.parent.parent
+            / "fixtures"
+            / "cl"
+            / "scotiabank"
+            / "credit_card_billed.html"
+        ).read_text(encoding="utf-8")
+        fixture_page.set_content(html)
+
+        movements = scraper._extract_cc_nacional_movements(
+            fixture_page, account_id="XXXX", transaction_type="Facturado"
+        )
+
+        assert len(movements) > 0
+        for m in movements:
+            assert m.currency == "CLP"
+            assert m.account_type == "credito"
+            assert m.transaction_type == "Facturado"
+        # Sign inversion: raw "$-1.089.139" (abono) → positive in model.
+        # Raw "$205.813" (cargo) → negative in model.
+        positives = [m for m in movements if m.amount > 0]
+        negatives = [m for m in movements if m.amount < 0]
+        assert positives, "Expected at least one abono (positive) after inversion."
+        assert negatives, "Expected at least one cargo (negative) after inversion."
+
+
+class TestExtractCCInternacionalFixture:
+    def test_billed_intl_extracts_usd_and_skips_summary_rows(
+        self, scraper, fixture_page
+    ):
+        from pathlib import Path
+
+        html = (
+            Path(__file__).parent.parent.parent
+            / "fixtures"
+            / "cl"
+            / "scotiabank"
+            / "credit_card_billed.html"
+        ).read_text(encoding="utf-8")
+        fixture_page.set_content(html)
+
+        movements = scraper._extract_cc_internacional_movements(
+            fixture_page, account_id="XXXX", transaction_type="Facturado"
+        )
+
+        for m in movements:
+            assert m.account_type == "credito"
+            assert m.currency in {"USD", "CLP"}
+            # Summary rows ("TOTAL PAGOS" / "TOTAL COMPRAS") must not appear
+            # because their fecha cell is empty.
+            assert "TOTAL" not in (m.description or "").upper()
+
+
+class TestExtractUnbilledFixture:
+    def test_unbilled_nacional_parses(self, scraper, fixture_page):
+        from pathlib import Path
+
+        html = (
+            Path(__file__).parent.parent.parent
+            / "fixtures"
+            / "cl"
+            / "scotiabank"
+            / "credit_card_unbilled.html"
+        ).read_text(encoding="utf-8")
+        fixture_page.set_content(html)
+
+        movements = scraper._extract_cc_nacional_movements(
+            fixture_page, account_id="XXXX", transaction_type="NoFacturado"
+        )
+
+        assert movements, "Expected at least one unbilled nacional movement."
+        for m in movements:
+            assert m.transaction_type == "NoFacturado"
+            assert m.account_type == "credito"
+            assert m.currency == "CLP"
+
+
+class TestScrapeMovementsOrchestration:
+    def test_aggregates_all_three_sections(self, scraper):
+        with (
+            patch.object(scraper, "_scrape_checking", return_value=["chk"]),
+            patch.object(
+                scraper, "_scrape_credit_card_billed", return_value=["cb1", "cb2"]
+            ),
+            patch.object(scraper, "_scrape_credit_card_unbilled", return_value=["un1"]),
+        ):
+            result = scraper._scrape_movements()
+        assert result == ["chk", "cb1", "cb2", "un1"]
+
+    def test_section_failure_does_not_abort_others(self, scraper):
+        from fintself.core.exceptions import DataExtractionError
+
+        with (
+            patch.object(scraper, "_scrape_checking", return_value=["chk"]),
+            patch.object(
+                scraper,
+                "_scrape_credit_card_billed",
+                side_effect=DataExtractionError("nope"),
+            ),
+            patch.object(scraper, "_scrape_credit_card_unbilled", return_value=["un"]),
+            patch.object(scraper, "_save_debug_info"),
+        ):
+            result = scraper._scrape_movements()
+        assert result == ["chk", "un"]
 
 
 class TestFixtureStructure:
