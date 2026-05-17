@@ -73,8 +73,13 @@ class ScotiabankScraper(BaseScraper):
         SHELL_BASE
         + "mfe/ltmnsw/mfe-accounts-balancesmovements-web/?tab=saldos&type=CTACTE"
     )
-    CC_SHELL_URL = (
-        SHELL_BASE + "mfe-simple-account-statement-web-cl/?tab=movimientos-facturados"
+    CC_BILLED_SHELL_URL = (
+        SHELL_BASE
+        + "mfe-simple-account-statement-web-cl/?tab=movimientos-facturados"
+    )
+    CC_UNBILLED_SHELL_URL = (
+        SHELL_BASE
+        + "mfe-simple-account-statement-web-cl/?tab=movimientos-no-facturados"
     )
 
     CHECKING_TABLE = "table.Table__dataTable"
@@ -322,6 +327,7 @@ class ScotiabankScraper(BaseScraper):
 
     def _scrape_credit_card_billed(self) -> List[MovementModel]:
         return self._scrape_cc_tab(
+            shell_url=self.CC_BILLED_SHELL_URL,
             tab_selector=self.TAB_BILLED_SELECTOR,
             transaction_type="Facturado",
             context="cc_billed",
@@ -329,18 +335,30 @@ class ScotiabankScraper(BaseScraper):
 
     def _scrape_credit_card_unbilled(self) -> List[MovementModel]:
         return self._scrape_cc_tab(
+            shell_url=self.CC_UNBILLED_SHELL_URL,
             tab_selector=self.TAB_UNBILLED_SELECTOR,
             transaction_type="NoFacturado",
             context="cc_unbilled",
         )
 
     def _scrape_cc_tab(
-        self, *, tab_selector: str, transaction_type: str, context: str
+        self,
+        *,
+        shell_url: str,
+        tab_selector: str,
+        transaction_type: str,
+        context: str,
     ) -> List[MovementModel]:
-        """Navigate to the credit-card MFE shell URL, click the requested tab, extract."""
+        """Navigate to the CC MFE shell URL for this tab and extract.
+
+        Each tab (facturados / no-facturados) has its own shell URL so
+        Playwright lands on a fresh iframe state. Falling back to a single
+        URL + tab click leaks the previous tab's DOM (both panes stay
+        mounted) and causes duplicate extractions.
+        """
         page = self._ensure_page()
-        logger.info(f"[{context}] navigating directly to CC shell URL.")
-        self._navigate(self.CC_SHELL_URL, timeout_override=60000)
+        logger.info(f"[{context}] navigating directly to {shell_url}.")
+        self._navigate(shell_url, timeout_override=60000)
         self._save_debug_info(f"{context}_01_navigated")
         self._dismiss_onboarding_tour(
             page, context=f"pre_{context}", max_wait_ms=self.TOUR_PRE_NAV_MS
@@ -348,6 +366,8 @@ class ScotiabankScraper(BaseScraper):
 
         frame = self._get_stage_frame(self.CC_IFRAME_URL_FRAGMENT)
 
+        # Tab is pre-selected by URL; if the button is rendered we still
+        # click it to be defensive (no-op if already active).
         logger.info(f"[{context}] waiting for tab {tab_selector} to render.")
         try:
             frame.wait_for_selector(tab_selector, timeout=self.TABLE_WAIT_MS)
@@ -357,7 +377,7 @@ class ScotiabankScraper(BaseScraper):
                 f"[{context}] tab {tab_selector} not present in iframe."
             )
         try:
-            frame.locator(tab_selector).click(timeout=5000)
+            frame.locator(tab_selector).click(timeout=3000)
             logger.info(f"[{context}] tab clicked.")
         except Exception as exc:
             logger.info(f"[{context}] tab click skipped (already active?): {exc}")
