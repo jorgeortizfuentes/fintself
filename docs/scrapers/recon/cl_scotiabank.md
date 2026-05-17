@@ -117,6 +117,15 @@ Headers: `FECHA, DESCRIPCIÓN, PAÍS, REFERENCIA, MONTO`.
 
 ⚠️ tbody includes summary rows (`TOTAL PAGOS`, `TOTAL COMPRAS`) with empty fecha cell — **filter rows where idx 0 is blank**.
 
+## Limitations
+
+The scraper was developed and live-tested against a single-product profile: one cuenta corriente and one Visa Enjoy credit card. As a result:
+
+- `CHECKING_SHELL_URL` hardcodes `?type=CTACTE`. Profiles with additional cuentas (other `CTACTE`, or `CTAH` / `CTANI` / `CTAV` variants) would be missed. To support them, read the account list on the checking shell and iterate `?type=CTACTE|CTAH|CTANI|CTAV` (and any future codes).
+- `CC_SHELL_URL` omits `card=NNNN`; the portal auto-picks the only card when there is one. Profiles with multiple cards would only return the default one. To support them, read the card dropdown inside the CC iframe and iterate `?card=NNNN`.
+
+No multi-account/multi-card selection logic is implemented or tested. PRs welcome — start in `ScotiabankScraper.scrape` and the URL constants near the top of the class.
+
 ## Sanitization rules (applied to committed fixtures)
 
 - RUTs → `XX.XXX.XXX-X` / `XXXXXXX-X`

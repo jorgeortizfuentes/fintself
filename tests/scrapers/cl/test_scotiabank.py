@@ -294,12 +294,21 @@ class TestExtractCCInternacionalFixture:
             fixture_page, account_id="XXXX", transaction_type="Facturado"
         )
 
+        assert len(movements) >= 1, "Expected at least one USD movement in fixture."
         for m in movements:
             assert m.account_type == "credito"
             assert m.currency in {"USD", "CLP"}
             # Summary rows ("TOTAL PAGOS" / "TOTAL COMPRAS") must not appear
             # because their fecha cell is empty.
             assert "TOTAL" not in (m.description or "").upper()
+        # Sign inversion: raw "USD -23,80" (abono) → positive; raw
+        # "USD 58,84" (cargo) → negative after inversion.
+        assert any(m.amount > 0 for m in movements), (
+            "Expected at least one inverted-positive (abono) USD movement."
+        )
+        assert any(m.amount < 0 for m in movements), (
+            "Expected at least one inverted-negative (cargo) USD movement."
+        )
 
 
 class TestExtractUnbilledFixture:

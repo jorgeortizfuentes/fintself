@@ -19,7 +19,23 @@ LocatorRoot = Union[Page, Frame, FrameLocator, Locator]
 
 
 class ScotiabankScraper(BaseScraper):
-    """Scraper to extract movements from Scotiabank Chile (personas)."""
+    """Scraper to extract movements from Scotiabank Chile (personas).
+
+    Limitations:
+        Developed and live-tested against a single-product profile: one
+        cuenta corriente (CTACTE) and one Visa Enjoy credit card. The shell
+        URLs hardcode ``?type=CTACTE`` (``CHECKING_SHELL_URL``) and omit any
+        ``card=`` selector in ``CC_SHELL_URL``; the portal auto-picks the
+        only account/card when there is just one of each.
+
+        Users with multiple checking-style accounts (additional CTACTE, or
+        CTAH / CTANI / CTAV variants) or multiple credit cards would have
+        the extra products silently skipped — no selection step is
+        implemented. To add multi-product support, extend ``scrape`` to
+        read the account list and iterate ``?type=`` values, and read the
+        card dropdown inside ``CC_SHELL_URL`` to iterate ``?card=NNNN``
+        values. PRs welcome.
+    """
 
     HOME_URL = "https://www.scotiabankchile.cl/"
     LOGIN_URL_PREFIX = "https://banco.scotiabank.cl/mfe-login/scotia"
@@ -42,8 +58,12 @@ class ScotiabankScraper(BaseScraper):
     TAB_UNBILLED_SELECTOR = "button#tab-action__movimientos-no-facturados"
     ACTIVE_TAB_SELECTOR = 'button[id^="tab-action__"].tab__action--active'
 
-    RADIO_NACIONAL = 'label.label--radio:has-text("Nacionales")'
-    RADIO_INTERNAC = 'label.label--radio:has-text("Internacionales")'
+    # Radio toggle inside CC iframe. DOM uses <div class="label--radio">
+    # (NOT <label>), labels are singular ("Nacional" / "Internacional").
+    RADIO_NACIONAL = (
+        'div.label--radio:has-text("Nacional"):not(:has-text("Internacional"))'
+    )
+    RADIO_INTERNAC = 'div.label--radio:has-text("Internacional")'
 
     CHECKING_IFRAME_URL_FRAGMENT = "mfe-accounts-balancesmovements-web"
     CC_IFRAME_URL_FRAGMENT = "mfe-simple-account-statement-web-cl"
@@ -353,18 +373,62 @@ class ScotiabankScraper(BaseScraper):
 
         account_id = self._extract_card_id(frame)
         movements: List[MovementModel] = []
-        movements.extend(
-            self._extract_cc_nacional_movements(
+
+        # Nacional radio (default-active) → extract nacional table.
+        self._select_cc_radio(frame, self.RADIO_NACIONAL, "nacional", context)
+        nac = self._extract_cc_nacional_movements(
+            frame, account_id=account_id, transaction_type=transaction_type
+        )
+        logger.info(f"[{context}] nacional rows: {len(nac)}.")
+        movements.extend(nac)
+
+        # Internacional radio → SPA re-renders the internacional table.
+        # Tolerate failure: user may not have USD movements / no radio shown.
+        if self._select_cc_radio(frame, self.RADIO_INTERNAC, "internacional", context):
+            try:
+                frame.wait_for_selector(self.CC_TABLE_INT, timeout=5000)
+            except PlaywrightTimeoutError:
+                logger.info(
+                    f"[{context}] internacional table did not render; "
+                    f"assuming no USD movements."
+                )
+            intl = self._extract_cc_internacional_movements(
                 frame, account_id=account_id, transaction_type=transaction_type
             )
-        )
-        movements.extend(
-            self._extract_cc_internacional_movements(
-                frame, account_id=account_id, transaction_type=transaction_type
-            )
-        )
+            logger.info(f"[{context}] internacional rows: {len(intl)}.")
+            movements.extend(intl)
+
         logger.info(f"[{context}] extracted {len(movements)} CC movements.")
         return movements
+
+    def _select_cc_radio(
+        self, frame: Frame, radio_selector: str, label: str, context: str
+    ) -> bool:
+        """Click a CC radio toggle (Nacional / Internacional) inside the iframe.
+
+        Returns True if the click succeeded (or radio not present, treated
+        as "already in that view"); False only on hard failures.
+        """
+        try:
+            loc = frame.locator(radio_selector).first
+            if loc.count() == 0:
+                logger.info(
+                    f"[{context}] radio '{label}' not present; "
+                    f"assuming view already active."
+                )
+                return True
+            loc.scroll_into_view_if_needed(timeout=3000)
+            loc.click(timeout=5000)
+            frame.wait_for_timeout(500)
+            logger.info(f"[{context}] selected '{label}' radio.")
+            self._save_debug_info(f"{context}_radio_{label}")
+            return True
+        except Exception as exc:
+            logger.warning(
+                f"[{context}] could not select '{label}' radio: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            return False
 
     def _extract_card_id(self, root: LocatorRoot) -> str:
         """Best-effort extraction of card label (e.g. 'Visa Enjoy ****XXXX')."""

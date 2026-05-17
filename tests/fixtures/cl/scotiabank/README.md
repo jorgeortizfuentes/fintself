@@ -23,3 +23,7 @@ All four fixtures were captured via `scripts/_capture_scotiabank_auth.py` (gitig
 - For CC internacional, the "MONTO" column shows currency-prefixed values (e.g. `USD -23,80`) — preserve currency separately from the number.
 
 See `recon/scotiabank_notes.md` (gitignored) for full selector documentation and the live capture flow.
+
+## Source profile caveat
+
+All captures come from a Scotiabank Chile user with exactly **one cuenta corriente (CTACTE) and one credit card**. Because the portal auto-selects the only available product, the recon DOM does **not** include the multi-account or multi-card selectors (no `?type=` switcher UI, no `card=NNNN` dropdown). Fixtures for multi-product profiles would need to be captured separately to test selection logic.
