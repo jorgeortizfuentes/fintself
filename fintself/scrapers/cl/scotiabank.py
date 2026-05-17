@@ -58,12 +58,16 @@ class ScotiabankScraper(BaseScraper):
     TAB_UNBILLED_SELECTOR = "button#tab-action__movimientos-no-facturados"
     ACTIVE_TAB_SELECTOR = 'button[id^="tab-action__"].tab__action--active'
 
-    # Radio toggle inside CC iframe. DOM uses <div class="label--radio">
-    # (NOT <label>), labels are singular ("Nacional" / "Internacional").
-    RADIO_NACIONAL = (
-        'div.label--radio:has-text("Nacional"):not(:has-text("Internacional"))'
+    # Sub-tab buttons inside the active CC pane (Facturados / No facturados).
+    # The portal uses <button class="button button--tab tab__action"> with
+    # text "Nacional" / "Internacional" (singular). NOT a radio input.
+    SUBTAB_NACIONAL = (
+        'button.tab__action:has-text("Nacional"):not(:has-text("Internacional"))'
     )
-    RADIO_INTERNAC = 'div.label--radio:has-text("Internacional")'
+    SUBTAB_INTERNAC = 'button.tab__action:has-text("Internacional")'
+    # Legacy aliases kept for tests that referenced them by name.
+    RADIO_NACIONAL = SUBTAB_NACIONAL
+    RADIO_INTERNAC = SUBTAB_INTERNAC
 
     CHECKING_IFRAME_URL_FRAGMENT = "mfe-accounts-balancesmovements-web"
     CC_IFRAME_URL_FRAGMENT = "mfe-simple-account-statement-web-cl"
@@ -393,26 +397,38 @@ class ScotiabankScraper(BaseScraper):
         account_id = self._extract_card_id(frame)
         movements: List[MovementModel] = []
 
-        # Nacional radio (default-active) → expand "Ver más" → extract.
-        self._select_cc_radio(frame, self.RADIO_NACIONAL, "nacional", context)
-        self._expand_all_ver_mas(frame, context=f"{context}_nacional")
+        # Nacional sub-tab (default-active in DOM) → expand → extract.
+        self._select_cc_radio(frame, self.SUBTAB_NACIONAL, "nacional", context)
+        self._expand_all_ver_mas(
+            frame,
+            context=f"{context}_nacional",
+            anchor_selector=self.CC_TABLE_NAC,
+        )
         nac = self._extract_cc_nacional_movements(
             frame, account_id=account_id, transaction_type=transaction_type
         )
         logger.info(f"[{context}] nacional rows: {len(nac)}.")
         movements.extend(nac)
 
-        # Internacional radio → SPA re-renders the internacional table.
-        # Tolerate failure: user may not have USD movements / no radio shown.
-        if self._select_cc_radio(frame, self.RADIO_INTERNAC, "internacional", context):
+        # Internacional sub-tab → SPA unhides the internacional table.
+        # Tolerate failure: user may not have USD movements.
+        if self._select_cc_radio(
+            frame, self.SUBTAB_INTERNAC, "internacional", context
+        ):
             try:
-                frame.wait_for_selector(self.CC_TABLE_INT, timeout=5000)
+                frame.wait_for_selector(
+                    self.CC_TABLE_INT, state="visible", timeout=5000
+                )
             except PlaywrightTimeoutError:
                 logger.info(
                     f"[{context}] internacional table did not render; "
                     f"assuming no USD movements."
                 )
-            self._expand_all_ver_mas(frame, context=f"{context}_internacional")
+            self._expand_all_ver_mas(
+                frame,
+                context=f"{context}_internacional",
+                anchor_selector=self.CC_TABLE_INT,
+            )
             intl = self._extract_cc_internacional_movements(
                 frame, account_id=account_id, transaction_type=transaction_type
             )
@@ -422,31 +438,43 @@ class ScotiabankScraper(BaseScraper):
         logger.info(f"[{context}] extracted {len(movements)} CC movements.")
         return movements
 
-    def _expand_all_ver_mas(self, frame: Frame, context: str) -> None:
+    def _expand_all_ver_mas(
+        self, frame: Frame, context: str, anchor_selector: Optional[str] = None
+    ) -> None:
         """Click 'Ver más Movimientos' until exhausted (paginated panel).
 
-        Each click reveals more rows in the active CC pane. Loop until the
-        button is gone, hidden, or stops responding. Cap at 30 iterations
-        to avoid infinite loops on a misbehaving SPA.
+        Each click reveals more rows in the active CC pane. Buttons are
+        often off-screen and Playwright's ``is_visible`` returns False
+        for them, so we iterate ALL matching buttons by index, scroll
+        each into view, and click whatever becomes actionable. Capped at
+        30 iterations to avoid infinite loops.
+
+        ``anchor_selector`` (optional): scroll this element into view
+        before each pass so a section's own 'Ver más' button gets
+        mounted in the viewport.
         """
-        button_selectors = [
-            "button:has-text('Ver más Movimientos facturados')",
-            "button:has-text('Ver más Movimientos por facturar')",
-            "button:has-text('Ver más Movimientos')",
-            "button:has-text('Ver más')",
-        ]
+        button_selector = (
+            "button:has-text('Ver más Movimientos'), button:has-text('Ver más')"
+        )
         clicks = 0
         max_clicks = 30
         while clicks < max_clicks:
-            clicked = False
-            for sel in button_selectors:
+            if anchor_selector:
                 try:
-                    btn = frame.locator(sel).first
-                    if btn.count() == 0:
-                        continue
+                    anchor = frame.locator(anchor_selector).first
+                    if anchor.count() > 0:
+                        anchor.scroll_into_view_if_needed(timeout=1500)
+                except Exception:
+                    pass
+            buttons = frame.locator(button_selector)
+            count = buttons.count()
+            clicked = False
+            for i in range(count):
+                btn = buttons.nth(i)
+                try:
+                    btn.scroll_into_view_if_needed(timeout=1500)
                     if not btn.is_visible(timeout=500):
                         continue
-                    btn.scroll_into_view_if_needed(timeout=2000)
                     btn.click(timeout=3000)
                     frame.wait_for_timeout(800)
                     clicks += 1
@@ -454,7 +482,7 @@ class ScotiabankScraper(BaseScraper):
                     break
                 except Exception as exc:
                     logger.debug(
-                        f"[{context}] 'Ver más' click via {sel} skipped: "
+                        f"[{context}] 'Ver más' button[{i}] skipped: "
                         f"{type(exc).__name__}"
                     )
             if not clicked:
