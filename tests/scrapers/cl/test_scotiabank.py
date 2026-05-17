@@ -72,11 +72,11 @@ class TestLogin:
 
         mock_expect.assert_called_once_with(page)
         to_have_url_call = mock_expect.return_value.to_have_url.call_args
-        url_predicate = to_have_url_call.args[0]
-        assert url_predicate(
+        url_pattern = to_have_url_call.args[0]
+        assert url_pattern.search(
             "https://www.scotiabank.cl/mfe/sweb/mfe-shell-web-cl/mfe/mfe/sweb/mfe-home-cl/"
         )
-        assert not url_predicate("https://banco.scotiabank.cl/mfe-login/scotia")
+        assert not url_pattern.search("https://banco.scotiabank.cl/mfe-login/scotia")
         assert to_have_url_call.kwargs.get("timeout") == 45000
 
         tour_mock.assert_called_once_with(page)

@@ -48,6 +48,15 @@ class ScotiabankScraper(BaseScraper):
     CHECKING_IFRAME_URL_FRAGMENT = "mfe-accounts-balancesmovements-web"
     CC_IFRAME_URL_FRAGMENT = "mfe-simple-account-statement-web-cl"
 
+    SHELL_BASE = "https://www.scotiabank.cl/mfe/sweb/mfe-shell-web-cl/mfe/"
+    CHECKING_SHELL_URL = (
+        SHELL_BASE
+        + "mfe/ltmnsw/mfe-accounts-balancesmovements-web/?tab=saldos&type=CTACTE"
+    )
+    CC_SHELL_URL = (
+        SHELL_BASE + "mfe-simple-account-statement-web-cl/?tab=movimientos-facturados"
+    )
+
     CHECKING_TABLE = "table.Table__dataTable"
     CHECKING_ROW = "tbody.TableBody tr.TableBody__bodyRow"
     CHECKING_CELL = "td.TableBody__cell"
@@ -65,7 +74,8 @@ class ScotiabankScraper(BaseScraper):
 
     POST_LOGIN_SETTLE_MS = 8000
     TOUR_POLL_INTERVAL_MS = 500
-    TOUR_PROBE_TIMEOUT_MS = 600
+    TOUR_PROBE_TIMEOUT_MS = 200
+    TOUR_PRE_NAV_MS = 500
 
     IFRAME_WAIT_MS = 30000
     TABLE_WAIT_MS = 20000
@@ -133,7 +143,7 @@ class ScotiabankScraper(BaseScraper):
         logger.info("Waiting for post-login redirect.")
         try:
             expect(page).to_have_url(
-                lambda url: self.DASHBOARD_URL_FRAGMENT in url, timeout=45000
+                re.compile(re.escape(self.DASHBOARD_URL_FRAGMENT)), timeout=45000
             )
             self._save_debug_info("04_login_success")
             logger.info("Login to Scotiabank Chile successful.")
@@ -146,15 +156,25 @@ class ScotiabankScraper(BaseScraper):
 
         self._dismiss_onboarding_tour(page)
 
-    def _dismiss_onboarding_tour(self, page: Page, context: str = "post_login") -> None:
+    def _dismiss_onboarding_tour(
+        self,
+        page: Page,
+        context: str = "post_login",
+        max_wait_ms: Optional[int] = None,
+    ) -> bool:
         """Poll for and close the onboarding tour overlay.
 
         Never matches 'Cerrar' alone (that is the logout button text).
-        ``context`` labels logs + debug artifacts so callers (post_login,
-        pre_cc_billed, ...) get distinguishable forensics.
+        Returns True if a tour button was dismissed, False otherwise.
+
+        ``max_wait_ms`` overrides the polling window — use a small value
+        (e.g. ``TOUR_PRE_NAV_MS``) when called right before a click to
+        avoid wasting time when no overlay is present. Default is the
+        post-login settle window.
         """
+        budget = max_wait_ms if max_wait_ms is not None else self.POST_LOGIN_SETTLE_MS
         elapsed = 0
-        while elapsed < self.POST_LOGIN_SETTLE_MS:
+        while elapsed < max(budget, 1):
             for sel in self.TOUR_DISMISS_SELECTORS:
                 try:
                     loc = page.locator(sel).first
@@ -163,11 +183,14 @@ class ScotiabankScraper(BaseScraper):
                         loc.click(timeout=2000)
                         page.wait_for_timeout(300)
                         self._save_debug_info(f"tour_dismissed_{context}")
-                        return
+                        return True
                 except Exception:
                     pass
+            if elapsed + self.TOUR_POLL_INTERVAL_MS >= budget:
+                break
             page.wait_for_timeout(self.TOUR_POLL_INTERVAL_MS)
             elapsed += self.TOUR_POLL_INTERVAL_MS
+        return False
 
     # ─── Iframe routing ───────────────────────────────────────────────────
 
@@ -181,13 +204,20 @@ class ScotiabankScraper(BaseScraper):
         deadline_ms = self.IFRAME_WAIT_MS
         elapsed = 0
         interval = 500
+        last_urls: List[str] = []
         while elapsed < deadline_ms:
-            for f in page.frames:
-                if url_fragment in (f.url or ""):
-                    return f
+            matches = [f for f in page.frames if url_fragment in (f.url or "")]
+            # Require the INNER content frame (no `mfe-shell` segment) — the
+            # outer shell frame matches the fragment too but lacks the
+            # table DOM. Keep polling until the inner frame appears.
+            inner = [f for f in matches if "mfe-shell" not in (f.url or "")]
+            if inner:
+                return inner[-1]
+            last_urls = [f.url for f in page.frames if f.url]
             page.wait_for_timeout(interval)
             elapsed += interval
         self._save_debug_info(f"iframe_missing_{url_fragment}")
+        logger.warning(f"Frames present at timeout for '{url_fragment}': {last_urls!r}")
         raise DataExtractionError(
             f"Could not locate iframe-stage frame with url fragment '{url_fragment}'."
         )
@@ -197,16 +227,12 @@ class ScotiabankScraper(BaseScraper):
     def _scrape_checking(self) -> List[MovementModel]:
         """Navigate to checking account view and extract movements."""
         page = self._ensure_page()
-        logger.info("Navigating to checking account ('Ver cartola').")
-        try:
-            page.get_by_text("Ver cartola").first.click(timeout=15000)
-        except PlaywrightTimeoutError:
-            self._save_debug_info("ver_cartola_not_found")
-            raise DataExtractionError(
-                "Dashboard 'Ver cartola' link not found; cannot reach checking view."
-            )
-        self._dismiss_onboarding_tour(page, context="pre_checking")
+        logger.info("Navigating directly to checking shell URL.")
+        self._navigate(self.CHECKING_SHELL_URL, timeout_override=60000)
         self._save_debug_info("checking_01_navigated")
+        self._dismiss_onboarding_tour(
+            page, context="pre_checking", max_wait_ms=self.TOUR_PRE_NAV_MS
+        )
 
         frame = self._get_stage_frame(self.CHECKING_IFRAME_URL_FRAGMENT)
         try:
@@ -291,34 +317,38 @@ class ScotiabankScraper(BaseScraper):
     def _scrape_cc_tab(
         self, *, tab_selector: str, transaction_type: str, context: str
     ) -> List[MovementModel]:
-        """Navigate to the credit-card MFE, click the requested tab, extract."""
+        """Navigate to the credit-card MFE shell URL, click the requested tab, extract."""
         page = self._ensure_page()
-        logger.info(f"[{context}] navigating to Tarjetas section.")
-        try:
-            page.get_by_text("Tarjetas").first.click(timeout=15000)
-        except PlaywrightTimeoutError:
-            self._save_debug_info(f"{context}_tarjetas_not_found")
-            raise DataExtractionError(
-                f"[{context}] dashboard 'Tarjetas' menu not found."
-            )
-        self._dismiss_onboarding_tour(page, context=f"pre_{context}")
+        logger.info(f"[{context}] navigating directly to CC shell URL.")
+        self._navigate(self.CC_SHELL_URL, timeout_override=60000)
         self._save_debug_info(f"{context}_01_navigated")
+        self._dismiss_onboarding_tour(
+            page, context=f"pre_{context}", max_wait_ms=self.TOUR_PRE_NAV_MS
+        )
 
         frame = self._get_stage_frame(self.CC_IFRAME_URL_FRAGMENT)
 
-        logger.info(f"[{context}] clicking tab {tab_selector}.")
+        logger.info(f"[{context}] waiting for tab {tab_selector} to render.")
         try:
-            frame.click(tab_selector, timeout=self.TABLE_WAIT_MS)
+            frame.wait_for_selector(tab_selector, timeout=self.TABLE_WAIT_MS)
         except PlaywrightTimeoutError:
             self._save_debug_info(f"{context}_tab_missing")
             raise DataExtractionError(
-                f"[{context}] tab {tab_selector} did not become clickable."
+                f"[{context}] tab {tab_selector} not present in iframe."
             )
+        try:
+            frame.locator(tab_selector).click(timeout=5000)
+            logger.info(f"[{context}] tab clicked.")
+        except Exception as exc:
+            logger.info(f"[{context}] tab click skipped (already active?): {exc}")
         try:
             frame.wait_for_selector(self.CC_TABLE_NAC, timeout=self.TABLE_WAIT_MS)
         except PlaywrightTimeoutError:
             self._save_debug_info(f"{context}_nac_table_missing")
-            raise DataExtractionError(f"[{context}] nacional table did not render.")
+            logger.warning(
+                f"[{context}] nacional table did not render; assuming empty period."
+            )
+            return []
         self._save_debug_info(f"{context}_02_table_ready")
 
         account_id = self._extract_card_id(frame)
