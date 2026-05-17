@@ -697,7 +697,7 @@ class ScotiabankScraper(BaseScraper):
                 ):
                     logger.warning(
                         f"Sign-convention sanity warning: row {idx} description "
-                        f"{description!r} looks like a payment but mapped to a "
+                        f"{description[:40]!r} looks like a payment but mapped to a "
                         f"negative amount ({amount_value}). Portal may have "
                         f"inverted its sign convention."
                     )

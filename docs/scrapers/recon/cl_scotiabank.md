@@ -106,7 +106,7 @@ Inside `_scrape_cc_tab` for each CC URL:
 2. Resolve the inner content frame with `_get_stage_frame(CC_IFRAME_URL_FRAGMENT)`.
 3. Wait for the tab button (`TAB_BILLED_SELECTOR` / `TAB_UNBILLED_SELECTOR`),
    defensively click it (no-op when already active), then wait for `CC_TABLE_NAC`.
-4. Extract the card id via `CC_CARD_LABEL_SELECTOR` / `CC_CARD_VALUE_SELECTOR`.
+4. Extract the card id via `CC_CARD_LABEL_SELECTOR` and an XPath ancestor lookup against the surrounding `children-container`.
 5. **Nacional sub-tab** → `_select_cc_radio(SUBTAB_NACIONAL)` →
    `_expand_all_ver_mas(anchor_selector=CC_TABLE_NAC)` → parse with
    `CC_TABLE_NAC` / `CC_ROW` / `CC_CELL`.
@@ -160,12 +160,9 @@ CELL      = 'td.table__data span'
 ⚠️ `.tab__action--active` is NOT unique (matches 2–3 nodes). Always combine with `id^="tab-action__"` to identify the relevant tab.
 
 ⚠️ The Nacional/Internacional toggle is a sub-tab **button** (`button.tab__action`),
-NOT a radio input. The legacy `RADIO_NACIONAL` / `RADIO_INTERNAC` names in the
-scraper are kept as aliases of `SUBTAB_NACIONAL` / `SUBTAB_INTERNAC` for
-backwards compatibility with older tests; new code should use the `SUBTAB_*`
-names. The Nacional label appears in both buttons ("Nacional" and
-"Internacional"), so `SUBTAB_NACIONAL` uses
-`:has-text("Nacional"):not(:has-text("Internacional"))` to disambiguate.
+NOT a radio input. Use `SUBTAB_NACIONAL` / `SUBTAB_INTERNAC`. The Nacional label
+appears in both buttons ("Nacional" and "Internacional"), so `SUBTAB_NACIONAL`
+uses `:has-text("Nacional"):not(:has-text("Internacional"))` to disambiguate.
 
 The portal renders only ~5 rows per sub-tab by default and appends a
 **"Ver más Movimientos facturados"** / **"Ver más Movimientos por facturar"**
