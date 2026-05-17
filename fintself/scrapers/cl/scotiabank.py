@@ -74,8 +74,7 @@ class ScotiabankScraper(BaseScraper):
         + "mfe/ltmnsw/mfe-accounts-balancesmovements-web/?tab=saldos&type=CTACTE"
     )
     CC_BILLED_SHELL_URL = (
-        SHELL_BASE
-        + "mfe-simple-account-statement-web-cl/?tab=movimientos-facturados"
+        SHELL_BASE + "mfe-simple-account-statement-web-cl/?tab=movimientos-facturados"
     )
     CC_UNBILLED_SHELL_URL = (
         SHELL_BASE
@@ -394,8 +393,9 @@ class ScotiabankScraper(BaseScraper):
         account_id = self._extract_card_id(frame)
         movements: List[MovementModel] = []
 
-        # Nacional radio (default-active) → extract nacional table.
+        # Nacional radio (default-active) → expand "Ver más" → extract.
         self._select_cc_radio(frame, self.RADIO_NACIONAL, "nacional", context)
+        self._expand_all_ver_mas(frame, context=f"{context}_nacional")
         nac = self._extract_cc_nacional_movements(
             frame, account_id=account_id, transaction_type=transaction_type
         )
@@ -412,6 +412,7 @@ class ScotiabankScraper(BaseScraper):
                     f"[{context}] internacional table did not render; "
                     f"assuming no USD movements."
                 )
+            self._expand_all_ver_mas(frame, context=f"{context}_internacional")
             intl = self._extract_cc_internacional_movements(
                 frame, account_id=account_id, transaction_type=transaction_type
             )
@@ -420,6 +421,46 @@ class ScotiabankScraper(BaseScraper):
 
         logger.info(f"[{context}] extracted {len(movements)} CC movements.")
         return movements
+
+    def _expand_all_ver_mas(self, frame: Frame, context: str) -> None:
+        """Click 'Ver más Movimientos' until exhausted (paginated panel).
+
+        Each click reveals more rows in the active CC pane. Loop until the
+        button is gone, hidden, or stops responding. Cap at 30 iterations
+        to avoid infinite loops on a misbehaving SPA.
+        """
+        button_selectors = [
+            "button:has-text('Ver más Movimientos facturados')",
+            "button:has-text('Ver más Movimientos por facturar')",
+            "button:has-text('Ver más Movimientos')",
+            "button:has-text('Ver más')",
+        ]
+        clicks = 0
+        max_clicks = 30
+        while clicks < max_clicks:
+            clicked = False
+            for sel in button_selectors:
+                try:
+                    btn = frame.locator(sel).first
+                    if btn.count() == 0:
+                        continue
+                    if not btn.is_visible(timeout=500):
+                        continue
+                    btn.scroll_into_view_if_needed(timeout=2000)
+                    btn.click(timeout=3000)
+                    frame.wait_for_timeout(800)
+                    clicks += 1
+                    clicked = True
+                    break
+                except Exception as exc:
+                    logger.debug(
+                        f"[{context}] 'Ver más' click via {sel} skipped: "
+                        f"{type(exc).__name__}"
+                    )
+            if not clicked:
+                break
+        if clicks:
+            logger.info(f"[{context}] expanded 'Ver más' {clicks} time(s).")
 
     def _select_cc_radio(
         self, frame: Frame, radio_selector: str, label: str, context: str
@@ -439,7 +480,9 @@ class ScotiabankScraper(BaseScraper):
                 return True
             loc.scroll_into_view_if_needed(timeout=3000)
             loc.click(timeout=5000)
-            frame.wait_for_timeout(500)
+            # Wait for the SPA to swap the active panel's table; lazy
+            # renders may otherwise miss the last few rows.
+            frame.wait_for_timeout(2000)
             logger.info(f"[{context}] selected '{label}' radio.")
             self._save_debug_info(f"{context}_radio_{label}")
             return True
