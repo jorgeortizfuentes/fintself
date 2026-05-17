@@ -48,26 +48,26 @@ class ScotiabankScraper(BaseScraper):
     PASSWORD_INPUT = '[data-testid="inputPassword"]'
     SUBMIT_BUTTON = 'role=button[name="Ingresar"]'
 
-    STAGE_IFRAME_ID = "iframe-stage"
-    STAGE_IFRAME_SELECTOR = "#iframe-stage"
-
-    TAB_BILLED_ID = "tab-action__movimientos-facturados"
-    TAB_UNBILLED_ID = "tab-action__movimientos-no-facturados"
-    TAB_BALANCE_ID = "tab-action__saldo"
-    TAB_BILLED_SELECTOR = "button#tab-action__movimientos-facturados"
-    TAB_UNBILLED_SELECTOR = "button#tab-action__movimientos-no-facturados"
-    ACTIVE_TAB_SELECTOR = 'button[id^="tab-action__"].tab__action--active'
+    # Tab buttons inside the CC iframe (Saldo / Facturados / No facturados).
+    # `id` attributes are hash-free and stable; fallbacks via `id$=` cover
+    # a hypothetical schema rename.
+    TAB_BILLED_SELECTOR = (
+        "button#tab-action__movimientos-facturados, "
+        'button[id$="movimientos-facturados"]'
+    )
+    TAB_UNBILLED_SELECTOR = (
+        "button#tab-action__movimientos-no-facturados, "
+        'button[id$="movimientos-no-facturados"]'
+    )
 
     # Sub-tab buttons inside the active CC pane (Facturados / No facturados).
-    # The portal uses <button class="button button--tab tab__action"> with
-    # text "Nacional" / "Internacional" (singular). NOT a radio input.
+    # Portal renders <button class="button button--tab tab__action"> with
+    # text "Nacional"/"Nacionales" / "Internacional"/"Internacionales".
+    # NOT a radio input. Substring match handles both singular and plural.
     SUBTAB_NACIONAL = (
         'button.tab__action:has-text("Nacional"):not(:has-text("Internacional"))'
     )
     SUBTAB_INTERNAC = 'button.tab__action:has-text("Internacional")'
-    # Legacy aliases kept for tests that referenced them by name.
-    RADIO_NACIONAL = SUBTAB_NACIONAL
-    RADIO_INTERNAC = SUBTAB_INTERNAC
 
     CHECKING_IFRAME_URL_FRAGMENT = "mfe-accounts-balancesmovements-web"
     CC_IFRAME_URL_FRAGMENT = "mfe-simple-account-statement-web-cl"
@@ -85,20 +85,28 @@ class ScotiabankScraper(BaseScraper):
         + "mfe-simple-account-statement-web-cl/?tab=movimientos-no-facturados"
     )
 
-    CHECKING_TABLE = "table.Table__dataTable"
-    CHECKING_ROW = "tbody.TableBody tr.TableBody__bodyRow"
-    CHECKING_CELL = "td.TableBody__cell"
+    # Checking table — primary uses BEM class names; `id="table-table"`
+    # is a stable fallback present on the actual data table.
+    CHECKING_TABLE = "table.Table__dataTable, table#table-table"
+    CHECKING_ROW = (
+        'tbody.TableBody tr.TableBody__bodyRow, #table-table tbody tr[class*="bodyRow"]'
+    )
+    CHECKING_CELL = "td.TableBody__cell, #table-table tbody td"
 
-    CC_TABLE_NAC = "div.tabla__movimientos--nacional table.table"
-    CC_TABLE_INT = "div.tabla__movimientos--internacional table.table"
+    # Credit-card tables. `[class*="...nacional"]:not([class*="print"])`
+    # fallback survives a class-modifier rename.
+    CC_TABLE_NAC = (
+        "div.tabla__movimientos--nacional table.table, "
+        '[class*="movimientos--nacional"]:not([class*="print"]) table'
+    )
+    CC_TABLE_INT = (
+        "div.tabla__movimientos--internacional table.table, "
+        '[class*="movimientos--internacional"]:not([class*="print"]) table'
+    )
     CC_ROW = "tbody tr.table__row"
     CC_CELL = "td.table__data"
 
     CC_CARD_LABEL_SELECTOR = "label.label__tarjetas-credito"
-    CC_CARD_VALUE_SELECTOR = (
-        "label.label__tarjetas-credito + "
-        "div span, label.label__tarjetas-credito ~ div span"
-    )
 
     POST_LOGIN_SETTLE_MS = 8000
     TOUR_POLL_INTERVAL_MS = 500
@@ -128,8 +136,10 @@ class ScotiabankScraper(BaseScraper):
 
     def _login(self) -> None:
         """Login to Scotiabank Chile personas portal."""
-        assert self.user is not None, "User must be provided"
-        assert self.password is not None, "Password must be provided"
+        if not self.user or not self.password:
+            raise LoginError(
+                "CL_SCOTIABANK_USER and CL_SCOTIABANK_PASSWORD must be set."
+            )
 
         page = self._ensure_page()
         logger.info("Navigating to Scotiabank Chile home page.")
@@ -177,9 +187,29 @@ class ScotiabankScraper(BaseScraper):
             logger.info("Login to Scotiabank Chile successful.")
         except (PlaywrightTimeoutError, AssertionError):
             self._save_debug_info("post_login_error")
+            current_url = page.url
+            try:
+                body_snippet = page.content()[:1500].lower()
+            except Exception:
+                body_snippet = ""
+            if any(
+                kw in body_snippet
+                for kw in (
+                    "mantenimiento",
+                    "mantención",
+                    "mantencion",
+                    "fuera de servicio",
+                )
+            ):
+                raise LoginError(
+                    f"Scotiabank portal appears to be under maintenance "
+                    f"(url={current_url}). See debug_output/post_login_error_*."
+                )
             raise LoginError(
-                "Timeout or error after login to Scotiabank Chile. "
-                "Credentials might be incorrect."
+                f"Post-login redirect to {self.DASHBOARD_URL_FRAGMENT} did not "
+                f"happen within 45s (url={current_url}). Likely cause: invalid "
+                f"credentials or portal blocked the session. "
+                f"See debug_output/post_login_error_*."
             )
 
         self._dismiss_onboarding_tour(page)
@@ -267,7 +297,11 @@ class ScotiabankScraper(BaseScraper):
             frame.wait_for_selector(self.CHECKING_TABLE, timeout=self.TABLE_WAIT_MS)
         except PlaywrightTimeoutError:
             self._save_debug_info("checking_table_missing")
-            raise DataExtractionError("Checking movement table did not render.")
+            logger.warning(
+                "[checking] table did not render; assuming no movements "
+                "(empty account or selector change)."
+            )
+            return []
         self._save_debug_info("checking_02_table_ready")
 
         movements = self._extract_checking_movements(frame)
@@ -412,9 +446,7 @@ class ScotiabankScraper(BaseScraper):
 
         # Internacional sub-tab → SPA unhides the internacional table.
         # Tolerate failure: user may not have USD movements.
-        if self._select_cc_radio(
-            frame, self.SUBTAB_INTERNAC, "internacional", context
-        ):
+        if self._select_cc_radio(frame, self.SUBTAB_INTERNAC, "internacional", context):
             try:
                 frame.wait_for_selector(
                     self.CC_TABLE_INT, state="visible", timeout=5000
@@ -424,6 +456,7 @@ class ScotiabankScraper(BaseScraper):
                     f"[{context}] internacional table did not render; "
                     f"assuming no USD movements."
                 )
+                return movements
             self._expand_all_ver_mas(
                 frame,
                 context=f"{context}_internacional",
@@ -458,6 +491,7 @@ class ScotiabankScraper(BaseScraper):
         )
         clicks = 0
         max_clicks = 30
+        row_selector = anchor_selector + " tbody tr" if anchor_selector else None
         while clicks < max_clicks:
             if anchor_selector:
                 try:
@@ -466,6 +500,7 @@ class ScotiabankScraper(BaseScraper):
                         anchor.scroll_into_view_if_needed(timeout=1500)
                 except Exception:
                     pass
+            rows_before = frame.locator(row_selector).count() if row_selector else None
             buttons = frame.locator(button_selector)
             count = buttons.count()
             clicked = False
@@ -485,6 +520,14 @@ class ScotiabankScraper(BaseScraper):
                         f"[{context}] 'Ver más' button[{i}] skipped: "
                         f"{type(exc).__name__}"
                     )
+            if clicked and row_selector is not None:
+                rows_after = frame.locator(row_selector).count()
+                if rows_after <= rows_before:
+                    logger.info(
+                        f"[{context}] 'Ver más' click did not add rows "
+                        f"({rows_before} → {rows_after}); stopping."
+                    )
+                    break
             if not clicked:
                 break
         if clicks:
@@ -644,6 +687,20 @@ class ScotiabankScraper(BaseScraper):
                 # Invert sign: raw "$-1.089.139" is an abono (payment); we
                 # store payments as positive (inflow) and cargos as negative.
                 amount_value = amount_value * Decimal("-1")
+                # Sanity check anchored at the start of the description so
+                # merchant tokens like "MERPAGO" / "ENTEL PCS PAGO ENLINEA"
+                # don't trigger false positives.
+                if amount_value < 0 and re.match(
+                    r"^\s*(pago|abono|devoluci[óo]n)\b",
+                    description,
+                    re.IGNORECASE,
+                ):
+                    logger.warning(
+                        f"Sign-convention sanity warning: row {idx} description "
+                        f"{description!r} looks like a payment but mapped to a "
+                        f"negative amount ({amount_value}). Portal may have "
+                        f"inverted its sign convention."
+                    )
 
                 movements.append(
                     MovementModel(
@@ -668,7 +725,7 @@ class ScotiabankScraper(BaseScraper):
         return movements
 
     @staticmethod
-    def _clean_text(text: str) -> str:
+    def _clean_text(text: Optional[str]) -> str:
         return re.sub(r"\s+", " ", (text or "")).strip()
 
     # ─── Orchestrator ─────────────────────────────────────────────────────
@@ -687,7 +744,13 @@ class ScotiabankScraper(BaseScraper):
                 all_movements.extend(fn())
             except DataExtractionError as exc:
                 self._save_debug_info(f"{label}_extraction_failed")
-                logger.warning(f"{label} extraction failed: {exc}")
+                logger.warning(f"[{label}] extraction failed: {exc}")
+            except Exception as exc:
+                self._save_debug_info(f"{label}_unexpected_error")
+                logger.exception(
+                    f"[{label}] unexpected error; other sections will continue: "
+                    f"{type(exc).__name__}: {exc}"
+                )
 
         logger.info(
             f"Scotiabank Chile extraction finished. Total: {len(all_movements)} "

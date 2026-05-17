@@ -131,7 +131,10 @@ class TestLogin:
             mock_expect.return_value.to_have_url.side_effect = AssertionError(
                 "url mismatch"
             )
-            with pytest.raises(LoginError, match="Credentials might be incorrect"):
+            with pytest.raises(
+                LoginError,
+                match="(Post-login redirect|maintenance|incorrect)",
+            ):
                 scraper._login()
 
 
@@ -409,3 +412,347 @@ class TestFixtureStructure:
             assert not re.search(r"\b\d{1,2}\.\d{3}\.\d{3}-[\dkK]\b", html), name
             assert not re.search(r"\b\d{7,8}-[\dkK]\b", html), name
             assert "Picoteo" not in html, name
+
+
+# ─── New unit tests ──────────────────────────────────────────────────────
+
+
+def _fixture_html(name: str) -> str:
+    from pathlib import Path
+
+    return (
+        Path(__file__).parent.parent.parent / "fixtures" / "cl" / "scotiabank" / name
+    ).read_text(encoding="utf-8")
+
+
+class TestExpandVerMas:
+    """Unit-tests for ``_expand_all_ver_mas`` (SPA pagination loop)."""
+
+    def _make_frame(self, visible_counts: list[int]) -> MagicMock:
+        """Build a Frame mock whose ``Ver más`` button count follows the script.
+
+        ``visible_counts[i]`` is the count returned on the i-th iteration.
+        After the list is exhausted, count returns 0 (button gone).
+        """
+        frame = MagicMock()
+        # anchor locator (always count==0 to skip scroll path)
+        anchor = MagicMock()
+        anchor.count.return_value = 0
+
+        button = MagicMock()
+        button.is_visible.return_value = True
+        # nth(i) returns the same button mock (single-button case).
+        button.nth.return_value = button
+
+        counts_iter = iter(visible_counts)
+
+        def count_side_effect():
+            try:
+                return next(counts_iter)
+            except StopIteration:
+                return 0
+
+        button.count.side_effect = count_side_effect
+
+        def locator_side_effect(selector):
+            if "Ver más" in selector:
+                return button
+            return anchor
+
+        frame.locator.side_effect = locator_side_effect
+        return frame, button
+
+    def test_clicks_until_button_absent(self, scraper):
+        # Button present 3 times, then gone.
+        frame, button = self._make_frame([1, 1, 1])
+        scraper._expand_all_ver_mas(frame, context="t")
+        assert button.click.call_count == 3
+
+    def test_loop_caps_at_30(self, scraper):
+        # Button always present → should cap at 30 clicks.
+        frame = MagicMock()
+        anchor = MagicMock()
+        anchor.count.return_value = 0
+        button = MagicMock()
+        button.is_visible.return_value = True
+        button.nth.return_value = button
+        button.count.return_value = 1
+
+        def locator_side_effect(selector):
+            if "Ver más" in selector:
+                return button
+            return anchor
+
+        frame.locator.side_effect = locator_side_effect
+        scraper._expand_all_ver_mas(frame, context="t")
+        assert button.click.call_count == 30
+
+    def test_returns_silently_when_no_button_present(self, scraper):
+        frame, button = self._make_frame([0])
+        # No exception, no clicks.
+        scraper._expand_all_ver_mas(frame, context="t")
+        button.click.assert_not_called()
+
+
+class TestSelectCcRadio:
+    """Unit-tests for ``_select_cc_radio``."""
+
+    def test_button_present_and_visible_clicked_once_timeout_5000(self, scraper):
+        frame = MagicMock()
+        loc = MagicMock()
+        loc.count.return_value = 1
+        frame.locator.return_value.first = loc
+
+        with patch.object(scraper, "_save_debug_info"):
+            ok = scraper._select_cc_radio(frame, "sel", "nacional", "ctx")
+
+        assert ok is True
+        loc.click.assert_called_once_with(timeout=5000)
+
+    def test_button_count_zero_returns_true(self, scraper):
+        frame = MagicMock()
+        loc = MagicMock()
+        loc.count.return_value = 0
+        frame.locator.return_value.first = loc
+
+        ok = scraper._select_cc_radio(frame, "sel", "internacional", "ctx")
+
+        assert ok is True
+        loc.click.assert_not_called()
+
+    def test_click_raises_returns_false_and_warns(self, scraper):
+        frame = MagicMock()
+        loc = MagicMock()
+        loc.count.return_value = 1
+        loc.click.side_effect = PlaywrightTimeoutError("nope")
+        frame.locator.return_value.first = loc
+
+        with patch("fintself.scrapers.cl.scotiabank.logger") as mock_logger:
+            ok = scraper._select_cc_radio(frame, "sel", "nacional", "ctx")
+
+        assert ok is False
+        assert mock_logger.warning.called
+
+
+class TestGetStageFrame:
+    """Unit-tests for ``_get_stage_frame``."""
+
+    def _frame(self, url: str) -> MagicMock:
+        f = MagicMock()
+        f.url = url
+        return f
+
+    def test_inner_frame_present_immediately(self, scraper):
+        page = MagicMock()
+        inner = self._frame("https://x/mfe-accounts-balancesmovements-web/foo")
+        page.frames = [inner]
+
+        with patch.object(scraper, "_ensure_page", return_value=page):
+            result = scraper._get_stage_frame("mfe-accounts-balancesmovements-web")
+
+        assert result is inner
+
+    def test_polls_until_inner_appears(self, scraper):
+        outer = self._frame(
+            "https://x/mfe-shell-web-cl/mfe/mfe-accounts-balancesmovements-web/"
+        )
+        inner = self._frame("https://x/mfe-accounts-balancesmovements-web/inner")
+
+        # First two reads: only outer. Then inner appears.
+        states = iter([[outer], [outer], [outer, inner], [outer, inner]])
+
+        class FakePage:
+            wait_for_timeout = MagicMock()
+
+            @property
+            def frames(self):
+                try:
+                    return next(states)
+                except StopIteration:
+                    return [outer, inner]
+
+        page = FakePage()
+
+        with patch.object(scraper, "_ensure_page", return_value=page):
+            result = scraper._get_stage_frame("mfe-accounts-balancesmovements-web")
+
+        assert result is inner
+        assert page.wait_for_timeout.called
+
+    def test_timeout_raises_data_extraction_error_and_saves_debug(self, scraper):
+        from fintself.core.exceptions import DataExtractionError
+
+        scraper.IFRAME_WAIT_MS = 1000  # short
+        page = MagicMock()
+        # Only outer shell frame ever present → never satisfies inner check.
+        outer = self._frame("https://x/mfe-shell-web-cl/mfe-accounts-foo/")
+        page.frames = [outer]
+
+        with (
+            patch.object(scraper, "_ensure_page", return_value=page),
+            patch.object(scraper, "_save_debug_info") as dbg,
+        ):
+            with pytest.raises(DataExtractionError):
+                scraper._get_stage_frame("mfe-accounts-foo")
+
+        dbg.assert_called()
+
+
+class TestExtractCardId:
+    """Fixture-driven test for ``_extract_card_id``."""
+
+    def test_returns_sanitized_card_label(self, scraper, fixture_page):
+        html = _fixture_html("credit_card_billed.html")
+        fixture_page.set_content(html)
+
+        card_id = scraper._extract_card_id(fixture_page)
+
+        assert isinstance(card_id, str)
+        assert card_id != ""
+        assert "****XXXX" in card_id
+
+
+class TestExtractCheckingMovementsEdgeCases:
+    """Fixture-driven edge cases with in-memory HTML mutation."""
+
+    def _rows(self, html: str) -> list[str]:
+        import re
+
+        return re.findall(
+            r'<tr class="TableBody__bodyRow[^>]*>.*?</tr>', html, flags=re.S
+        )
+
+    def test_row_with_empty_amount_cell_is_skipped(self, scraper, fixture_page):
+        import re
+
+        html = _fixture_html("checking_movements.html")
+
+        # Baseline parse FIRST (before mutation).
+        fixture_page.set_content(html)
+        baseline_movements = scraper._extract_checking_movements(
+            fixture_page, account_id="1234"
+        )
+        baseline_count = len(baseline_movements)
+        assert baseline_count > 1
+
+        # Blank out amount cell (5th td, idx=4) of the first row.
+        rows = self._rows(html)
+        first = rows[0]
+        cells = re.findall(r'<td class="TableBody__cell"[^>]*>.*?</td>', first, re.S)
+        assert len(cells) >= 6
+        amount_td = cells[4]
+        new_amount_td = re.sub(
+            r'(<td class="TableBody__cell"[^>]*>).*?(</td>)',
+            r"\1\2",
+            amount_td,
+            count=1,
+            flags=re.S,
+        )
+        mutated_first = first.replace(amount_td, new_amount_td, 1)
+        mutated_html = html.replace(first, mutated_first, 1)
+        fixture_page.set_content(mutated_html)
+
+        movements = scraper._extract_checking_movements(fixture_page, account_id="1234")
+        # One fewer movement than baseline (zero-amount row was skipped).
+        assert len(movements) == baseline_count - 1
+
+    def test_malformed_date_row_skipped_others_extracted(self, scraper, fixture_page):
+        import re
+
+        html = _fixture_html("checking_movements.html")
+        rows = self._rows(html)
+        first = rows[0]
+        cells = re.findall(r'<td class="TableBody__cell"[^>]*>.*?</td>', first, re.S)
+        date_td = cells[1]
+        bad_date_td = re.sub(
+            r'(<td class="TableBody__cell"[^>]*>)(.*?)(</td>)',
+            r"\g<1>99-99-9999\g<3>",
+            date_td,
+            count=1,
+            flags=re.S,
+        )
+        mutated_first = first.replace(date_td, bad_date_td, 1)
+        mutated_html = html.replace(first, mutated_first, 1)
+        fixture_page.set_content(mutated_html)
+
+        movements = scraper._extract_checking_movements(fixture_page, account_id="1234")
+        # Other rows still parsed successfully.
+        assert len(movements) > 0
+
+    def test_empty_tbody_returns_empty_list(self, scraper, fixture_page):
+        import re
+
+        html = _fixture_html("checking_movements.html")
+        # Remove all rows from the tbody.
+        mutated = re.sub(
+            r'(<tbody class="TableBody">).*?(</tbody>)',
+            r"\1\2",
+            html,
+            count=1,
+            flags=re.S,
+        )
+        fixture_page.set_content(mutated)
+
+        movements = scraper._extract_checking_movements(fixture_page, account_id="1234")
+        assert movements == []
+
+
+class TestSanitization:
+    """Expanded sanitization checks on captured fixtures."""
+
+    FIXTURES = [
+        "checking_movements.html",
+        "credit_card_billed.html",
+        "credit_card_unbilled.html",
+        "login_page.html",
+    ]
+
+    # 16-digit groups that are allowed (third-party tracker IDs, not PANs).
+    ALLOWED_16_DIGIT = {"1517270105255357"}
+    # Allowed emails (test placeholders / Google example domains).
+    ALLOWED_EMAILS = {"cc@google.com"}
+
+    def test_no_chilean_rut(self):
+        import re
+
+        for name in self.FIXTURES:
+            html = _fixture_html(name)
+            assert not re.search(r"\b\d{1,2}\.\d{3}\.\d{3}-[\dkK]\b", html), name
+            assert not re.search(r"\b\d{7,8}-[\dkK]\b", html), name
+
+    def test_no_real_emails_except_allowlist(self):
+        import re
+
+        pattern = re.compile(r"[\w.+-]+@[\w.-]+\.\w{2,}")
+        for name in self.FIXTURES:
+            html = _fixture_html(name)
+            found = set(pattern.findall(html))
+            leaked = found - self.ALLOWED_EMAILS
+            assert not leaked, f"{name}: unexpected emails {leaked}"
+
+    def test_no_unknown_16_digit_groups(self):
+        import re
+
+        pattern = re.compile(r"(?<!\d)\d{16}(?!\d)")
+        for name in self.FIXTURES:
+            html = _fixture_html(name)
+            found = set(pattern.findall(html))
+            leaked = found - self.ALLOWED_16_DIGIT
+            assert not leaked, f"{name}: unexpected 16-digit groups {leaked}"
+
+
+class TestParseChileanAmountScotiaCases:
+    @pytest.mark.parametrize(
+        "amount_str, expected",
+        [
+            ("$-1.089.139", "-1089139"),
+            ("USD -23,80", "-23.80"),
+            ("$ ", "0"),
+        ],
+    )
+    def test_scotia_amount_strings(self, amount_str, expected):
+        from decimal import Decimal
+
+        from fintself.utils.parsers import parse_chilean_amount
+
+        assert parse_chilean_amount(amount_str) == Decimal(expected)
