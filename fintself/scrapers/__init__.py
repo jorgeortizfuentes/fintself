@@ -11,6 +11,7 @@ from .cl import (
     BiceScraper,
     CencosudScraper,
     SantanderScraper,
+    ScotiabankScraper,
 )
 
 # Dictionary that maps bank IDs to scraper classes
@@ -20,6 +21,7 @@ _SCRAPERS: Dict[str, Type[BaseScraper]] = {
     "cl_banco_chile": BancoChileScraper,
     "cl_estado": BancoEstadoScraper,
     "cl_bice": BiceScraper,
+    "cl_scotiabank": ScotiabankScraper,
 }
 
 
@@ -68,6 +70,7 @@ def list_available_scrapers() -> Dict[str, str]:
         "cl_banco_chile": "Scraper for Banco de Chile (Chile).",
         "cl_estado": "Scraper for Cuenta RUT Banco Estado (Chile).",
         "cl_bice": "Scraper for Banco Bice (Chile).",
+        "cl_scotiabank": "Scraper for Scotiabank (Chile).",
     }
 
     return {

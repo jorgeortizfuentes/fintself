@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Scotiabank CC Billed — Test Fixture</title>
+
+</head>
+<body>
+<div class="cc-wrapper">
+  <label class="label__tarjetas-credito">Tarjeta de Crédito</label>
+  <div class="DataPairLayout_children-container__test">
+    <span class="Typography_content-data">Visa Ejemplo ****XXXX</span>
+  </div>
+
+  <div class="tab__bar">
+    <ul class="tab__list">
+      <li class="tab__item">
+        <button id="tab-action__saldo" class="button button--tab tab__action">Saldo</button>
+      </li>
+      <li class="tab__item">
+        <button id="tab-action__movimientos-facturados" class="button button--tab tab__action tab__action--active">Movimientos facturados</button>
+      </li>
+      <li class="tab__item">
+        <button id="tab-action__movimientos-no-facturados" class="button button--tab tab__action">Movimientos por facturar</button>
+      </li>
+    </ul>
+  </div>
+
+  <div class="tab__content tab__content--active">
+    <div class="cc-subtabs">
+      <button class="button button--tab tab__action tab__action--active">Nacional</button>
+      <button class="button button--tab tab__action">Internacional</button>
+    </div>
+
+    <div class="tabla__movimientos--nacional">
+      <div class="overflow-x">
+        <table class="table">
+          <thead class="table__header">
+            <tr class="table__row">
+              <th class="table__header-item"><span>FECHA</span></th>
+              <th class="table__header-item"><span>DESCRIPCIÓN</span></th>
+              <th class="table__header-item"><span>CIUDAD</span></th>
+              <th class="table__header-item"><span>MONTO</span></th>
+              <th class="table__header-item"><span></span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="table__row">
+              <td class="table__data"><span>01/03/2026</span></td>
+              <td class="table__data"><span>PAGO EN EFECTIVO</span></td>
+              <td class="table__data"><span><span class="no-wrap"> </span></span></td>
+              <td class="table__data"><span>$-100.000</span></td>
+              <td class="table__data"><span><span class="no-wrap"> </span></span></td>
+            </tr>
+            <tr class="table__row">
+              <td class="table__data"><span>05/03/2026</span></td>
+              <td class="table__data"><span>TIENDA EJEMPLO</span></td>
+              <td class="table__data"><span>SANTIAGO</span></td>
+              <td class="table__data"><span>$25.000</span></td>
+              <td class="table__data"><span><span class="no-wrap"> </span></span></td>
+            </tr>
+            <tr class="table__row">
+              <td class="table__data"><span>10/03/2026</span></td>
+              <td class="table__data"><span>RESTAURANTE TEST</span></td>
+              <td class="table__data"><span>SANTIAGO</span></td>
+              <td class="table__data"><span>$8.500</span></td>
+              <td class="table__data"><span><span class="no-wrap"> </span></span></td>
+            </tr>
+            <tr class="table__row">
+              <td class="table__data"><span>15/03/2026</span></td>
+              <td class="table__data"><span>COMBUSTIBLE EJEMPLO</span></td>
+              <td class="table__data"><span>SANTIAGO</span></td>
+              <td class="table__data"><span>$40.000</span></td>
+              <td class="table__data"><span><span class="no-wrap"> </span></span></td>
+            </tr>
+            <tr class="table__row">
+              <td class="table__data"><span>20/03/2026</span></td>
+              <td class="table__data"><span>FARMACIA EJEMPLO</span></td>
+              <td class="table__data"><span>SANTIAGO</span></td>
+              <td class="table__data"><span>$5.000</span></td>
+              <td class="table__data"><span><span class="no-wrap"> </span></span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <button class="button">Ver más Movimientos facturados</button>
+
+    <div class="tabla__movimientos--internacional">
+      <div class="overflow-x">
+        <table class="table">
+          <thead class="table__header">
+            <tr class="table__row">
+              <th class="table__header-item"><span>FECHA</span></th>
+              <th class="table__header-item"><span>DESCRIPCIÓN</span></th>
+              <th class="table__header-item"><span>PAÍS</span></th>
+              <th class="table__header-item"><span>REFERENCIA</span></th>
+              <th class="table__header-item"><span>MONTO</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="table__row">
+              <td class="table__data"><span><span class="no-wrap"> </span></span></td>
+              <td class="table__data"><span>TOTAL PAGOS</span></td>
+              <td class="table__data"><span>00</span></td>
+              <td class="table__data"><span>0</span></td>
+              <td class="table__data"><span>USD 0,00</span></td>
+            </tr>
+            <tr class="table__row">
+              <td class="table__data"><span>02/03/2026</span></td>
+              <td class="table__data"><span>PAGO EN EFECTIVO</span></td>
+              <td class="table__data"><span><span class="no-wrap"> </span></span></td>
+              <td class="table__data"><span>-10,00</span></td>
+              <td class="table__data"><span>USD -10,00</span></td>
+            </tr>
+            <tr class="table__row">
+              <td class="table__data"><span><span class="no-wrap"> </span></span></td>
+              <td class="table__data"><span>TOTAL COMPRAS</span></td>
+              <td class="table__data"><span>00</span></td>
+              <td class="table__data"><span>0</span></td>
+              <td class="table__data"><span>USD 0,00</span></td>
+            </tr>
+            <tr class="table__row">
+              <td class="table__data"><span>06/03/2026</span></td>
+              <td class="table__data"><span>STREAMING SERVICE</span></td>
+              <td class="table__data"><span>US</span></td>
+              <td class="table__data"><span>12,50</span></td>
+              <td class="table__data"><span>USD 12,50</span></td>
+            </tr>
+            <tr class="table__row">
+              <td class="table__data"><span>11/03/2026</span></td>
+              <td class="table__data"><span>SOFTWARE TOOL EJEMPLO</span></td>
+              <td class="table__data"><span>US</span></td>
+              <td class="table__data"><span>25,00</span></td>
+              <td class="table__data"><span>USD 25,00</span></td>
+            </tr>
+            <tr class="table__row">
+              <td class="table__data"><span><span class="no-wrap"> </span></span></td>
+              <td class="table__data"><span>COMISIONES, OTROS CARGOS Y AB</span></td>
+              <td class="table__data"><span>00</span></td>
+              <td class="table__data"><span>0</span></td>
+              <td class="table__data"><span>USD 0,00</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab__content">
+    <!-- "por facturar" pane (empty here; see credit_card_unbilled.html) -->
+  </div>
+</div>
+</body>
+</html>

@@ -40,6 +40,9 @@ Actualmente, Fintself soporta los siguientes scrapers para Chile:
 | Banco Estado (CuentaRUT) | `cl_estado` | Sí | No | Solo movimientos de CuentaRUT. |
 | Banco Bice | `cl_bice` | Sí | Sí | Contribución de [@albertocintolesi](https://github.com/albertocintolesi). |
 | Tarjeta Cencosud Scotiabank | `cl_cencosud` | No aplica | Sí | |
+| Scotiabank Chile | `cl_scotiabank` | Sí | Sí | Cuenta corriente y tarjeta de crédito (facturadas y no facturadas). [^1] |
+
+[^1]: Probado solo con una única cuenta corriente (CTACTE) y una sola tarjeta de crédito. Perfiles con múltiples cuentas o tarjetas requieren un paso de selección que aún no está implementado; los productos adicionales serían omitidos. Contribuciones bienvenidas.
 
 Para ver la lista actualizada directamente desde la herramienta, ejecuta `fintself list`.
 

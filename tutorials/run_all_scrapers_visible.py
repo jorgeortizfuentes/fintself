@@ -17,6 +17,7 @@ BANKS_TO_SCRAPE = [
     "cl_banco_chile",
     "cl_cencosud",
     "cl_bice",
+    "cl_scotiabank",
 ]
 
 

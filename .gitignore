@@ -218,6 +218,11 @@ __marimo__/
 outputs
 
 # Local development files (keep only locally)
-docs/
+docs/*
+!docs/scrapers
+!docs/scrapers/**
 CLAUDE.md
 TO_DO.md
+RESUME.md
+/recon/
+scripts/_*.py
