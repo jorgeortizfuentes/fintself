@@ -333,9 +333,21 @@ class BaseScraper(ABC):
                 logger.info(
                     f"Launching browser for {self._get_bank_id()} (headless: {self.headless})..."
                 )
-                self.browser = self.playwright.chromium.launch(
-                    headless=self.headless, slow_mo=self.slow_mo
-                )
+                launch_options = {"headless": self.headless, "slow_mo": self.slow_mo}
+                if self.headless:
+                    # The default headless mode uses Playwright's lightweight
+                    # "headless shell" binary, which some banks (e.g. Banco de
+                    # Chile) serve a degraded page to. The "chromium" channel
+                    # runs the full browser binary in new-headless mode, which
+                    # behaves like a headed session.
+                    launch_options["channel"] = "chromium"
+                try:
+                    self.browser = self.playwright.chromium.launch(**launch_options)
+                except Exception:
+                    # Fall back to the default binary if the full Chromium
+                    # channel is not installed on this machine.
+                    launch_options.pop("channel", None)
+                    self.browser = self.playwright.chromium.launch(**launch_options)
 
                 context_options = {
                     "user_agent": self.user_agent,
