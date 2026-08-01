@@ -10,6 +10,7 @@ from .cl import (
     BancoEstadoScraper,
     BiceScraper,
     CencosudScraper,
+    FalabellaScraper,
     SantanderScraper,
 )
 
@@ -20,6 +21,7 @@ _SCRAPERS: Dict[str, Type[BaseScraper]] = {
     "cl_banco_chile": BancoChileScraper,
     "cl_estado": BancoEstadoScraper,
     "cl_bice": BiceScraper,
+    "cl_falabella": FalabellaScraper,
 }
 
 
@@ -68,6 +70,7 @@ def list_available_scrapers() -> Dict[str, str]:
         "cl_banco_chile": "Scraper for Banco de Chile (Chile).",
         "cl_estado": "Scraper for Cuenta RUT Banco Estado (Chile).",
         "cl_bice": "Scraper for Banco Bice (Chile).",
+        "cl_falabella": "Scraper for Banco Falabella (Chile) — checking + CMR.",
     }
 
     return {
