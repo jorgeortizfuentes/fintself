@@ -441,8 +441,8 @@ wheels = [
 
 [[package]]
 name = "fintself"
-version = "1.4.0"
-source = { virtual = "." }
+version = "1.5.0"
+source = { editable = "." }
 dependencies = [
     { name = "loguru" },
     { name = "openpyxl" },
