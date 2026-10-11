@@ -820,6 +820,23 @@ class BancoChileScraper(BaseScraper):
 
         return all_movements
 
+    def _scrape_current_account_view(self) -> List[MovementModel]:
+        page = self._ensure_page()
+        body_text = page.locator("body").inner_text()
+
+        account_match = re.search(r"\d{2}-\d{3}-\d{5}-\d{2}", body_text) or re.search(
+            r"\b\d[\d-]{7,}\d\b", body_text
+        )
+        account_id = account_match.group(0) if account_match else "default"
+        if not account_match:
+            logger.warning("Could not read account number from page, using 'default'")
+
+        # Assume CLP: there is no currency selector without the modal, and
+        # the menus mention USD too, so scanning page text would misfire.
+        currency_code = "CLP"
+
+        return self._extract_movements_from_table(currency_code, account_id)
+
     def _scrape_account_movements(self) -> List[MovementModel]:
         """Scrapes debit account movements from the Saldos y Movimientos section."""
         page = self._ensure_page()
@@ -850,6 +867,7 @@ class BancoChileScraper(BaseScraper):
         movements_selectors = [
             'a[href="#/movimientos/cuenta/saldos-movimientos"]',
             'a:has-text("Saldos y Movimientos")',
+            'a:has-text("Saldos y movimientos")',
             'a:has-text("Movimientos")',
             ".movements-link",
         ]
@@ -908,32 +926,29 @@ class BancoChileScraper(BaseScraper):
             )
             return []
 
-        # Wait for account selection modal with improved selectors
-        modal_selectors = [
+        modal_selector = ", ".join([
             'h2:has-text("Seleccione una cuenta")',
             'h1:has-text("Seleccione una cuenta")',
             '.modal-title:has-text("Seleccione")',
             'mat-select[name="monedas"]',
-        ]
+        ])
+        table_selector = ", ".join([
+            "table.bch-table",
+            "div.bch-alert:has-text('No existe información')",
+            "div.alert:has-text('No existe')",
+        ])
 
-        modal_found = False
-        for selector in modal_selectors:
-            try:
-                page.wait_for_selector(selector, timeout=10000)
-                modal_found = True
-                logger.info(
-                    f"Account selection modal opened (detected with: {selector})"
-                )
-                break
-            except PlaywrightTimeoutError:
-                continue
-
-        if not modal_found:
+        try:
+            page.wait_for_selector(f"{modal_selector}, {table_selector}", timeout=20000)
+        except PlaywrightTimeoutError:
             self._save_debug_info("account_selection_modal_not_found")
-            logger.warning(
-                "Account selection modal did not appear, skipping account movements"
-            )
+            logger.warning("Neither the account selection modal nor a movements table appeared, skipping account movements")
             return []
+
+        if not page.locator(modal_selector).first.is_visible():
+            logger.info("No account selection modal; extracting the account shown directly")
+            self._save_debug_info("06_no_account_modal_direct_table")
+            return self._scrape_current_account_view()
 
         self._save_debug_info("06_account_selection_modal_opened")
 
@@ -1507,9 +1522,9 @@ class BancoChileScraper(BaseScraper):
                         "td:nth-child(2)",
                     ]
                     desc_selectors = ["td.cdk-column-descripcion", "td:nth-child(3)"]
-                    cuotas_selectors = ["td.cdk-column-cuotas", "td:nth-child(4)"]
-                    cargo_selectors = ["td.cdk-column-cargo", "td:nth-child(5)"]
-                    pago_selectors = ["td.cdk-column-pago", "td:nth-child(6)"]
+                    cuotas_selectors = ["td.cdk-column-despliegueCuotas", "td.cdk-column-cuotas", "td:nth-child(4)"]
+                    cargo_selectors = ["td.cdk-column-montoCargo", "td.cdk-column-cargo", "td:nth-child(5)"]
+                    pago_selectors = ["td.cdk-column-montoPago", "td.cdk-column-pago", "td:nth-child(6)"]
 
                     # Find elements within this specific row
                     date_element = None
